@@ -1,0 +1,15 @@
+# Never commit secrets or machine-specific files.
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log

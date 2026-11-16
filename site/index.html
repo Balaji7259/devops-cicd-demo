@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DevOps CI/CD Demo</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="index.html">
+      <img src="assets/logo.svg" alt="" width="24" height="24" />
+      <span>devops-cicd-demo</span>
+    </a>
+    <nav>
+      <a href="index.html" aria-current="page">Home</a>
+      <a href="about.html">How it works</a>
+    </nav>
+  </header>
+
+  <main class="card">
+    <p class="eyebrow">Automated CI/CD Deployment Pipeline</p>
+    <h1>Deployed by GitHub Actions</h1>
+    <p class="lede">
+      This page is served by an Nginx container. Every push to
+      <code>main</code> rebuilds the image, pushes it to Amazon ECR and
+      redeploys it on EC2 &mdash; with no manual steps.
+    </p>
+
+    <dl class="meta">
+      <div><dt>Application version</dt><dd>v1.0.0</dd></div>
+      <div><dt>Image</dt><dd>devops-cicd-demo</dd></div>
+      <div><dt>Served by</dt><dd>Nginx on Alpine</dd></div>
+      <div><dt>Environment</dt><dd>Local Docker</dd></div>
+    </dl>
+
+    <p class="foot">
+      <a href="about.html">See how the pipeline works &rarr;</a>
+    </p>
+  </main>
+</body>
+</html>

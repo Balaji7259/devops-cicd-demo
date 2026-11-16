@@ -1,0 +1,14 @@
+# Files Docker should NOT send to the build daemon.
+# Smaller build context = faster builds and no leaked secrets in the image.
+
+.git
+.gitignore
+.github
+
+docs
+README.md
+*.md
+
+.env
+*.pem
+*.key

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>How the pipeline works &middot; DevOps CI/CD Demo</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="index.html">
+      <img src="assets/logo.svg" alt="" width="24" height="24" />
+      <span>devops-cicd-demo</span>
+    </a>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="about.html" aria-current="page">How it works</a>
+    </nav>
+  </header>
+
+  <main class="card">
+    <p class="eyebrow">The deployment path</p>
+    <h1>What happens after a push</h1>
+    <p class="lede">
+      Nine things happen between <code>git push</code> and a visitor seeing
+      the new page. Each one runs in a different place, which is why the
+      &ldquo;where&rdquo; column matters when something breaks.
+    </p>
+
+    <ol class="steps">
+      <li><strong>Commit is pushed</strong> &mdash; your Windows machine uploads the change to GitHub.</li>
+      <li><strong>Change is detected</strong> &mdash; GitHub matches the push against the workflow file and queues a run.</li>
+      <li><strong>Code is tested</strong> &mdash; a temporary Ubuntu runner checks the required files exist.</li>
+      <li><strong>Image is built</strong> &mdash; <code>docker build</code> executes the Dockerfile on that runner.</li>
+      <li><strong>Image is pushed</strong> &mdash; the layers are uploaded to Amazon ECR, tagged with the commit SHA.</li>
+      <li><strong>Server is contacted</strong> &mdash; the runner opens an SSH session to your EC2 instance.</li>
+      <li><strong>Image is pulled</strong> &mdash; EC2 downloads that exact tag from ECR.</li>
+      <li><strong>Container is replaced</strong> &mdash; the old container is removed and a new one starts from the new image.</li>
+      <li><strong>Nginx serves it</strong> &mdash; port 80 answers on the instance&rsquo;s public address.</li>
+    </ol>
+
+    <p class="foot">
+      <a href="index.html">&larr; Back to home</a>
+    </p>
+  </main>
+</body>
+</html>
