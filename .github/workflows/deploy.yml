@@ -264,20 +264,34 @@ jobs:
           # limit, and a single 4.8 KB command is what made the earlier
           # attempts fail before they ever reached the instance. Several small
           # commands reassemble the file on disk instead.
+          # A private root-owned directory, not /tmp. Ubuntu sets
+          # fs.protected_regular=2, which makes even root fail to open a file it
+          # does not own inside a sticky directory - the exact error that made
+          # earlier attempts fail with "cannot create /tmp/...: Permission
+          # denied" while looking like a payload problem.
+          workdir = "/var/lib/deploy-ci"
+
           chunk_size = 800
           chunks = [payload[i:i + chunk_size] for i in range(0, len(payload), chunk_size)]
 
-          commands = ["rm -f /tmp/deploy.b64"]
+          commands = [
+              "install -d -m 700 " + workdir,
+              "rm -f " + workdir + "/payload.b64",
+          ]
           for chunk in chunks:
-              commands.append("printf '%s' '" + chunk + "' >> /tmp/deploy.b64")
+              commands.append("printf '%s' '" + chunk + "' >> " + workdir + "/payload.b64")
 
-          commands.append("base64 -d /tmp/deploy.b64 | gzip -dc > /tmp/deploy-remote.sh")
+          commands.append(
+              "base64 -d " + workdir + "/payload.b64 | gzip -dc > " + workdir + "/deploy.sh"
+          )
           commands.append(
               "IMAGE_URI='" + image + "'"
               + " CONTAINER='" + container + "'"
               + " REGION='" + region + "'"
-              + " bash /tmp/deploy-remote.sh"
-              + "; rc=$?; rm -f /tmp/deploy.b64 /tmp/deploy-remote.sh; exit $rc"
+              + " bash " + workdir + "/deploy.sh"
+              + "; rc=$?"
+              + "; rm -f " + workdir + "/payload.b64 " + workdir + "/deploy.sh"
+              + "; exit $rc"
           )
 
           with open("/tmp/params.json", "w", encoding="utf-8") as fh:
