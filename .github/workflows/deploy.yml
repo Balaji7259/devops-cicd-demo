@@ -1,0 +1,125 @@
+name: Build, Push and Deploy
+
+# Any push to main is a deployment. Feature work happens on branches; only
+# main reaches production.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # manual trigger for re-deploys and rollback testing
+
+# Least privilege for GITHUB_TOKEN: read the repo, nothing else. The pipeline
+# authenticates to AWS with the CI user, not with this token.
+permissions:
+  contents: read
+
+# Never run two deployments at once — a second push must not fight the first
+# over the same container name. Queued, not cancelled, so no deploy is skipped.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: devops-cicd-demo
+  CONTAINER_NAME: devops-demo
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      # Consumed by the deploy job. The tag is the commit SHA, never "latest",
+      # so the running container is traceable to an exact commit forever.
+      image_uri: ${{ steps.build.outputs.image_uri }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag and push
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          echo "Building ${IMAGE_URI}"
+          docker build --tag "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+          echo "image_uri=${IMAGE_URI}" >> "${GITHUB_OUTPUT}"
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH access
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${EC2_SSH_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key instead of trusting whatever answers the IP.
+          ssh-keyscan -H "${EC2_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Pull and replace the container
+        env:
+          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              "ubuntu@${EC2_HOST}" \
+              "IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          # The instance role supplies these credentials; nothing is stored here.
+          REGISTRY="${IMAGE_URI%%/*}"
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+
+          docker pull "$IMAGE_URI"
+
+          # Replace, do not patch. The old container goes away only after the new
+          # image is on disk, so a failed pull leaves the running site untouched.
+          docker rm -f "$CONTAINER" 2>/dev/null || true
+          docker run -d --name "$CONTAINER" -p 80:80 --restart unless-stopped "$IMAGE_URI"
+
+          # Fail the job if the new container does not serve traffic. Without this
+          # the pipeline would report success while the site is down.
+          for attempt in $(seq 1 10); do
+            if curl -fsS http://localhost/healthz; then
+              echo
+              echo "Deployment healthy on attempt ${attempt}"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health check failed after 20s — last 50 log lines:" >&2
+          docker logs "$CONTAINER" --tail 50 >&2 || true
+          exit 1
+          REMOTE
+
+      - name: Report deployed image
+        if: success()
+        run: echo "Deployed ${{ needs.build-and-push.outputs.image_uri }}"
