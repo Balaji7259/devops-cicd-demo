@@ -24,6 +24,9 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: devops-cicd-demo
   CONTAINER_NAME: devops-demo
+  # Not a secret: an instance id is an address, not a credential. The CI policy
+  # is scoped to this ARN, so naming it here grants nothing by itself.
+  EC2_INSTANCE_ID: i-01c13546bb8b4b707
 
 jobs:
   # ---------------------------------------------------------------- gate 1
@@ -220,16 +223,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Prepare SSH access
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          printf '%s\n' "${EC2_SSH_KEY}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${EC2_HOST}" >> ~/.ssh/known_hosts
+      # No SSH key, no port 22. The command travels through the SSM control
+      # plane and runs as root on the instance, authenticated by the instance
+      # role. The runner only needs ssm:SendCommand against one instance ARN.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Check out deploy script
         uses: actions/checkout@v4
@@ -241,15 +243,58 @@ jobs:
       - name: Pull, replace and roll back if unhealthy
         env:
           IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=yes \
-              -o ConnectTimeout=15 \
-              "ubuntu@${EC2_HOST}" \
-              "IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash -s" \
-              < scripts/deploy-remote.sh
+
+          # Base64 keeps the script intact through the SSM JSON payload: no
+          # quoting, no escaping, no shell metacharacters to trip over.
+          SCRIPT_B64="$(base64 -w0 scripts/deploy-remote.sh)"
+
+          REMOTE="echo '${SCRIPT_B64}' | base64 -d > /tmp/deploy-remote.sh"
+          REMOTE="${REMOTE} && IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash /tmp/deploy-remote.sh"
+          REMOTE="${REMOTE}; rc=\$?; rm -f /tmp/deploy-remote.sh; exit \$rc"
+
+          CMD_ID="$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --comment "deploy ${IMAGE_URI}" \
+            --timeout-seconds 300 \
+            --parameters "{\"commands\":[\"${REMOTE}\"]}" \
+            --query "Command.CommandId" --output text)"
+
+          echo "SSM command id: ${CMD_ID}"
+
+          STATUS="Pending"
+          for attempt in $(seq 1 90); do
+            STATUS="$(aws ssm get-command-invocation \
+              --command-id "${CMD_ID}" \
+              --instance-id "${EC2_INSTANCE_ID}" \
+              --query Status --output text 2>/dev/null || echo "Pending")"
+            case "${STATUS}" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 2
+          done
+
+          echo "----- remote stdout -----"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" \
+            --instance-id "${EC2_INSTANCE_ID}" \
+            --query StandardOutputContent --output text || true
+
+          echo "----- remote stderr -----" >&2
+          aws ssm get-command-invocation --command-id "${CMD_ID}" \
+            --instance-id "${EC2_INSTANCE_ID}" \
+            --query StandardErrorContent --output text >&2 || true
+
+          CODE="$(aws ssm get-command-invocation --command-id "${CMD_ID}" \
+            --instance-id "${EC2_INSTANCE_ID}" \
+            --query ResponseCode --output text 2>/dev/null || echo "unknown")"
+          echo "final status: ${STATUS}, exit code: ${CODE}"
+
+          if [ "${STATUS}" != "Success" ]; then
+            echo "::error::deployment command ended in ${STATUS} (exit ${CODE})"
+            exit 1
+          fi
 
       # Gate 3: verify from outside the instance, over the public internet.
       # A local health check can pass while the security group blocks real users.
