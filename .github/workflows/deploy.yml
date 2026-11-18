@@ -303,16 +303,24 @@ jobs:
           print("longest command:", max(len(c) for c in commands))
           PY
 
+          # SSM rejects a comment longer than 100 characters, and a full ECR URI
+          # is ~108. Use the tag alone, which is the part that identifies the
+          # deploy anyway.
+          COMMENT="deploy ${IMAGE_URI##*:}"
+          COMMENT="${COMMENT:0:100}"
+
           # Keep the CLI's own error text, and push it into an annotation so the
           # reason is visible on the run page without opening the raw log.
           if ! SEND_OUT="$(aws ssm send-command \
                 --document-name "AWS-RunShellScript" \
                 --instance-ids "${EC2_INSTANCE_ID}" \
-                --comment "deploy ${IMAGE_URI}" \
+                --comment "${COMMENT}" \
                 --timeout-seconds 300 \
                 --parameters file:///tmp/params.json \
                 --query "Command.CommandId" --output text 2>&1)"; then
-            FIRST_LINE="$(printf '%s' "${SEND_OUT}" | head -n 1 | cut -c1-800)"
+            # Skip blank lines: the AWS CLI prefixes its error with a newline,
+            # and an annotation with an empty message is silently dropped.
+            FIRST_LINE="$(printf '%s\n' "${SEND_OUT}" | sed '/^[[:space:]]*$/d' | head -n 1 | cut -c1-800)"
             echo "::error title=SSM CLI error::${FIRST_LINE}"
             printf '%s\n' "${SEND_OUT}"
             {
