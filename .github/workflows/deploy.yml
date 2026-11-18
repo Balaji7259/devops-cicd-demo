@@ -211,6 +211,11 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build-and-push
+    # Not `success()`. A rollback run skips the `test` job, and a skipped job
+    # anywhere in the ancestor chain makes success() false — which silently
+    # skipped this entire job while the run still reported green. Depend on the
+    # one job that actually matters.
+    if: always() && needs.build-and-push.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -284,3 +289,27 @@ jobs:
       - name: Report deployed image
         if: success()
         run: echo "Deployed ${{ needs.build-and-push.outputs.image_uri }}"
+
+  # ---------------------------------------------------------------- guard
+  # GitHub reports a run as green when a job is skipped, not just when it
+  # succeeds. That is how a rollback run once went green having deployed
+  # nothing. This job converts "nothing happened" into a red run.
+  guard:
+    name: Deployment guard
+    needs: [build-and-push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless the deploy job actually ran
+        if: needs.deploy.result != 'success'
+        env:
+          BUILD: ${{ needs.build-and-push.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+        run: |
+          echo "::error::Deployment did not happen — build=${BUILD} deploy=${DEPLOY}"
+          echo "A skipped or failed deploy is not a successful run, even if GitHub shows green."
+          exit 1
+
+      - name: Confirm
+        if: needs.deploy.result == 'success'
+        run: echo "Deployment verified for ${{ needs.build-and-push.outputs.image_uri }}"
