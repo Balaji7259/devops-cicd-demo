@@ -63,6 +63,10 @@ key; it assumes a role. The CI user can push and read images, and nothing else.
 A `guard` job fails the run if the deploy job did not actually succeed — GitHub
 otherwise reports a skipped job as a green run.
 
+**If the new container never becomes healthy, the deploy puts the previous image
+back before exiting.** The run still fails — a rollback is a recovery, not a
+pass — but the site stays up while somebody reads the log.
+
 Typical end-to-end time: **40–55 seconds**.
 
 ---
@@ -105,6 +109,7 @@ instead. This is a documented compromise, not an oversight — see
 ```
 .github/workflows/deploy.yml   the pipeline
 scripts/smoke-test.sh          shared gate: runs and probes an image
+scripts/deploy-remote.sh       runs on EC2: pull, swap, health check, roll back
 site/                          static site served by Nginx
 Dockerfile                     nginx:1.27-alpine + site files
 docs/                          phase-by-phase engineering record
@@ -153,8 +158,9 @@ convenience.
 - **Access key instead of OIDC** — blocked by account plan, see above.
 - **Single instance, brief downtime** during container replacement. Not
   zero-downtime; a second instance behind a load balancer would be.
-- **No automated rollback** on a failed health check. The run fails loudly, but
-  the previous container is already gone.
+- **A failed deploy costs a few seconds of downtime.** The container is removed
+  before the new one starts, so the swap is not atomic. A second instance behind
+  a load balancer, or a blue/green swap, would remove even that gap.
 
 ---
 
