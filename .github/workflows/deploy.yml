@@ -246,22 +246,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Base64 keeps the script intact through the SSM JSON payload: no
-          # quoting, no escaping, no shell metacharacters to trip over.
-          SCRIPT_B64="$(base64 -w0 scripts/deploy-remote.sh)"
+          # Build the SSM parameter file with Python. Passing a 4.5 KB base64
+          # string as a shell-quoted CLI argument is the kind of thing that
+          # works until it meets a character it does not like; a JSON file has
+          # no quoting rules left to get wrong.
+          python3 - <<'PY'
+          import base64, json, os
 
-          REMOTE="echo '${SCRIPT_B64}' | base64 -d > /tmp/deploy-remote.sh"
-          REMOTE="${REMOTE} && IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash /tmp/deploy-remote.sh"
-          REMOTE="${REMOTE}; rc=\$?; rm -f /tmp/deploy-remote.sh; exit \$rc"
+          script = base64.b64encode(open("scripts/deploy-remote.sh", "rb").read()).decode()
+          image = os.environ["IMAGE_URI"]
+          container = os.environ["CONTAINER_NAME"]
+          region = os.environ["AWS_REGION"]
 
-          CMD_ID="$(aws ssm send-command \
-            --document-name "AWS-RunShellScript" \
-            --instance-ids "${EC2_INSTANCE_ID}" \
-            --comment "deploy ${IMAGE_URI}" \
-            --timeout-seconds 300 \
-            --parameters "{\"commands\":[\"${REMOTE}\"]}" \
-            --query "Command.CommandId" --output text)"
+          remote = (
+              "echo '" + script + "' | base64 -d > /tmp/deploy-remote.sh"
+              + " && IMAGE_URI='" + image + "'"
+              + " CONTAINER='" + container + "'"
+              + " REGION='" + region + "'"
+              + " bash /tmp/deploy-remote.sh"
+              + "; rc=$?; rm -f /tmp/deploy-remote.sh; exit $rc"
+          )
+          with open("/tmp/params.json", "w", encoding="utf-8") as fh:
+              json.dump({"commands": [remote]}, fh)
+          print("parameter file bytes:", os.path.getsize("/tmp/params.json"))
+          PY
 
+          # Keep the CLI's own error text. Without this the job shows only
+          # "exit code 1" and the reason is thrown away.
+          if ! SEND_OUT="$(aws ssm send-command \
+                --document-name "AWS-RunShellScript" \
+                --instance-ids "${EC2_INSTANCE_ID}" \
+                --comment "deploy ${IMAGE_URI}" \
+                --timeout-seconds 300 \
+                --parameters file:///tmp/params.json \
+                --query "Command.CommandId" --output text 2>&1)"; then
+            echo "::error::ssm send-command was rejected"
+            echo "${SEND_OUT}"
+            exit 1
+          fi
+
+          CMD_ID="${SEND_OUT}"
           echo "SSM command id: ${CMD_ID}"
 
           STATUS="Pending"
