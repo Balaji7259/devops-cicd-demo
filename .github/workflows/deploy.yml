@@ -1,19 +1,13 @@
-name: Build, Push and Deploy
+name: Build, Test and Deploy
 
-# Any push to main is a deployment. Feature work happens on branches; only
-# main reaches production.
 on:
   push:
     branches: [main]
-  workflow_dispatch: # manual trigger for re-deploys and rollback testing
+  workflow_dispatch:
 
-# Least privilege for GITHUB_TOKEN: read the repo, nothing else. The pipeline
-# authenticates to AWS with the CI user, not with this token.
 permissions:
   contents: read
 
-# Never run two deployments at once — a second push must not fight the first
-# over the same container name. Queued, not cancelled, so no deploy is skipped.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -24,17 +18,143 @@ env:
   CONTAINER_NAME: devops-demo
 
 jobs:
-  build-and-push:
-    name: Build and push image
+  # ---------------------------------------------------------------- gate 1
+  # Cheap static checks. Fails in ~10s on a missing file or malformed HTML,
+  # before any cloud credential is spent or any image is built.
+  test:
+    name: Static checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      # Consumed by the deploy job. The tag is the commit SHA, never "latest",
-      # so the running container is traceable to an exact commit forever.
-      image_uri: ${{ steps.build.outputs.image_uri }}
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Verify required files exist
+        run: |
+          set -euo pipefail
+          for f in Dockerfile site/index.html site/about.html site/style.css site/assets/logo.svg; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Required file missing: $f"
+              exit 1
+            fi
+            echo "present: $f"
+          done
+
+      - name: Validate HTML structure
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          from html.parser import HTMLParser
+
+          VOID = {"area", "base", "br", "col", "embed", "hr", "img",
+                  "input", "link", "meta", "source", "track", "wbr"}
+
+          class Checker(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.stack = []
+                  self.errors = []
+
+              def handle_startendtag(self, tag, attrs):
+                  # <meta />, <link /> and friends arrive here, not as start+end.
+                  pass
+
+              def handle_starttag(self, tag, attrs):
+                  if tag not in VOID:
+                      self.stack.append(tag)
+
+              def handle_endtag(self, tag):
+                  if tag in VOID:
+                      return
+                  if not self.stack:
+                      self.errors.append(f"stray </{tag}>")
+                  elif self.stack[-1] != tag:
+                      self.errors.append(f"</{tag}> closes <{self.stack[-1]}>")
+                      self.stack.pop()
+                  else:
+                      self.stack.pop()
+
+          failed = False
+          for path in ("site/index.html", "site/about.html"):
+              parser = Checker()
+              parser.feed(open(path, encoding="utf-8").read())
+              parser.close()
+              if parser.errors or parser.stack:
+                  failed = True
+                  print(f"::error file={path}::unbalanced markup: {parser.errors or parser.stack}")
+              else:
+                  print(f"well-formed: {path}")
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Assert health endpoint marker is shipped
+        run: |
+          set -euo pipefail
+          # The container's /healthz is served from this file; if the marker
+          # disappears, the deploy job's health check would fail anyway.
+          grep -q "healthz" Dockerfile || { echo "::error::Dockerfile no longer defines /healthz"; exit 1; }
+          echo "health endpoint contract intact"
+
+  # ---------------------------------------------------------------- gate 2
+  build-and-push:
+    name: Build, smoke test and push
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      image_uri: ${{ steps.push.outputs.image_uri }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # Built under a local name first. Nothing touches AWS until the image has
+      # proven it can serve traffic, so a broken build never reaches the registry.
+      - name: Build image
+        id: build
+        run: |
+          set -euo pipefail
+          LOCAL_TAG="devops-cicd-demo:${GITHUB_SHA}"
+          echo "Building ${LOCAL_TAG}"
+          docker build --tag "${LOCAL_TAG}" .
+          echo "local_tag=${LOCAL_TAG}" >> "${GITHUB_OUTPUT}"
+
+      # Gate 2: the built artefact is actually started and queried before it is
+      # allowed anywhere near ECR. Every path the site depends on is fetched.
+      - name: Smoke test the image
+        env:
+          LOCAL_TAG: ${{ steps.build.outputs.local_tag }}
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 8080:80 "${LOCAL_TAG}"
+          trap 'docker logs smoke --tail 30 || true; docker rm -f smoke || true' EXIT
+
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8080/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+          check() {
+            local path="$1" expect="${2:-200}"
+            local code
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${path}")
+            if [ "${code}" != "${expect}" ]; then
+              echo "::error::GET ${path} returned ${code}, expected ${expect}"
+              exit 1
+            fi
+            echo "GET ${path} -> ${code}"
+          }
+
+          check /healthz
+          check /
+          check /about.html
+          check /style.css
+          check /assets/logo.svg
+
+          body=$(curl -fsS http://localhost:8080/healthz)
+          [ "${body}" = "ok" ] || { echo "::error::/healthz body was '${body}', expected 'ok'"; exit 1; }
+          curl -fsS http://localhost:8080/ | grep -q '<title>' || { echo "::error::no <title> in served HTML"; exit 1; }
+          echo "smoke test passed"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -47,18 +167,21 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag and push
-        id: build
+      - name: Push image
+        id: push
         env:
+          LOCAL_TAG: ${{ steps.build.outputs.local_tag }}
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           set -euo pipefail
-          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          echo "Building ${IMAGE_URI}"
-          docker build --tag "${IMAGE_URI}" .
-          docker push "${IMAGE_URI}"
-          echo "image_uri=${IMAGE_URI}" >> "${GITHUB_OUTPUT}"
+          # Retag through the registry host ECR reported, so the URI used for
+          # the push is identical to the one the deploy job will pull.
+          PUSH_URI="${REGISTRY}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          docker tag "${LOCAL_TAG}" "${PUSH_URI}"
+          docker push "${PUSH_URI}"
+          echo "image_uri=${PUSH_URI}" >> "${GITHUB_OUTPUT}"
 
+  # ---------------------------------------------------------------- deploy
   deploy:
     name: Deploy to EC2
     needs: build-and-push
@@ -74,15 +197,12 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${EC2_SSH_KEY}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Pin the host key instead of trusting whatever answers the IP.
           ssh-keyscan -H "${EC2_HOST}" >> ~/.ssh/known_hosts
 
       - name: Pull and replace the container
         env:
           IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy_key \
@@ -92,20 +212,15 @@ jobs:
               "IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash -s" <<'REMOTE'
           set -euo pipefail
 
-          # The instance role supplies these credentials; nothing is stored here.
           REGISTRY="${IMAGE_URI%%/*}"
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$REGISTRY"
 
           docker pull "$IMAGE_URI"
 
-          # Replace, do not patch. The old container goes away only after the new
-          # image is on disk, so a failed pull leaves the running site untouched.
           docker rm -f "$CONTAINER" 2>/dev/null || true
           docker run -d --name "$CONTAINER" -p 80:80 --restart unless-stopped "$IMAGE_URI"
 
-          # Fail the job if the new container does not serve traffic. Without this
-          # the pipeline would report success while the site is down.
           for attempt in $(seq 1 10); do
             if curl -fsS http://localhost/healthz; then
               echo
@@ -119,6 +234,26 @@ jobs:
           docker logs "$CONTAINER" --tail 50 >&2 || true
           exit 1
           REMOTE
+
+      # Gate 3: verify from outside the instance, over the public internet.
+      # A local health check can pass while the security group blocks real users.
+      - name: Verify public endpoint
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            if curl -fsS "http://${EC2_HOST}/healthz" | grep -q '^ok$'; then
+              echo "public /healthz OK"
+              break
+            fi
+            [ "$i" -eq 10 ] && { echo "::error::public endpoint never became healthy"; exit 1; }
+            sleep 3
+          done
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://${EC2_HOST}/")
+          [ "$code" = "200" ] || { echo "::error::public root returned ${code}"; exit 1; }
+          echo "public root 200"
 
       - name: Report deployed image
         if: success()
