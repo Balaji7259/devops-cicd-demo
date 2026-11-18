@@ -43,7 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           for f in Dockerfile site/index.html site/about.html site/style.css \
-                   site/assets/logo.svg scripts/smoke-test.sh; do
+                   site/assets/logo.svg scripts/smoke-test.sh \
+                   scripts/deploy-remote.sh; do
             if [ ! -f "$f" ]; then
               echo "::error::Required file missing: $f"
               exit 1
@@ -230,7 +231,14 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${EC2_HOST}" >> ~/.ssh/known_hosts
 
-      - name: Pull and replace the container
+      - name: Check out deploy script
+        uses: actions/checkout@v4
+
+      # The remote logic lives in scripts/deploy-remote.sh so it can be linted,
+      # reviewed and tested against the real server before the pipeline relies
+      # on it. It rolls back to the previous image if the new one is unhealthy,
+      # then still exits non-zero so the run goes red.
+      - name: Pull, replace and roll back if unhealthy
         env:
           IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -240,31 +248,8 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
               "ubuntu@${EC2_HOST}" \
-              "IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash -s" <<'REMOTE'
-          set -euo pipefail
-
-          REGISTRY="${IMAGE_URI%%/*}"
-          aws ecr get-login-password --region "$REGION" \
-            | docker login --username AWS --password-stdin "$REGISTRY"
-
-          docker pull "$IMAGE_URI"
-
-          docker rm -f "$CONTAINER" 2>/dev/null || true
-          docker run -d --name "$CONTAINER" -p 80:80 --restart unless-stopped "$IMAGE_URI"
-
-          for attempt in $(seq 1 10); do
-            if curl -fsS http://localhost/healthz; then
-              echo
-              echo "Deployment healthy on attempt ${attempt}"
-              exit 0
-            fi
-            sleep 2
-          done
-
-          echo "Health check failed after 20s — last 50 log lines:" >&2
-          docker logs "$CONTAINER" --tail 50 >&2 || true
-          exit 1
-          REMOTE
+              "IMAGE_URI='${IMAGE_URI}' CONTAINER='${CONTAINER_NAME}' REGION='${AWS_REGION}' bash -s" \
+              < scripts/deploy-remote.sh
 
       # Gate 3: verify from outside the instance, over the public internet.
       # A local health check can pass while the security group blocks real users.
