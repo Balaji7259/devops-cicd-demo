@@ -1,0 +1,14 @@
+# Normalise line endings to LF in the repository.
+# Without this, Windows checkouts store CRLF, which every commit warns about and
+# which would break shell scripts if run locally ("set: command not found" via a
+# trailing \r) or a YAML block scalar that contains a heredoc.
+* text=auto eol=lf
+
+*.sh  text eol=lf
+*.yml text eol=lf
+*.md  text eol=lf
+
+# Never touch binary content.
+*.png binary
+*.jpg binary
+*.pdf binary
