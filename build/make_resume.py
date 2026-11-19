@@ -7,6 +7,12 @@ rather than assumed. Tune the size constants below if content changes.
 
 import os
 
+# Reproducible output: without this, reportlab stamps the current time into the
+# PDF metadata, so every rebuild produces a different file and git shows the
+# resume as modified even when not a character changed.
+from reportlab import rl_config
+rl_config.invariant = 1
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
