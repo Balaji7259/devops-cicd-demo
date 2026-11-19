@@ -1,0 +1,1 @@
+{"commands": ["docker ps --format \"IMAGE={{.Image}} STATUS={{.Status}}\"; docker inspect --format \"started={{.State.StartedAt}}\" devops-demo; echo \"--- port 80 ---\"; ss -lntp | grep \":80 \" || true"]}
