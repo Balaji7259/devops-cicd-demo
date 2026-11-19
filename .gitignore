@@ -13,3 +13,8 @@ desktop.ini
 
 # Logs
 *.log
+
+# Build byproducts (regenerate with build/make_resume.py)
+build/resume-preview.png
+resume/_sweep_*.pdf
+
