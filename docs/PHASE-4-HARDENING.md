@@ -188,13 +188,35 @@ The pipeline was proven twice: once by executing the extracted step locally
 (`EXIT=0`, container swapped, `final status: Success, exit code: 0`), and once by
 the run itself.
 
-### Closing steps (console, manual)
+### Closing the port
 
-- Delete the port 22 inbound rule from `devops-cicd-sg`
-- Delete the `EC2_SSH_KEY` repository secret
+Both console steps are done. Verified from outside rather than assumed:
 
-Until both are done, SSH still works alongside SSM. The pipeline no longer needs
-it.
+```
+port 22 : open=False
+port 80 : open=True
+```
+
+The instance now has exactly one reachable port, and the deploy path does not
+use it.
+
+Runs #20 and #21 then deployed through SSM against the new address with all four
+jobs green, and the running container was confirmed on the instance:
+
+```
+IMAGE=...devops-cicd-demo:70ad8bc...
+STATUS=Up 56 seconds
+started=2026-11-19T05:58:22Z     (inside run #21's window)
+port 80: docker-proxy
+```
+
+### One thing this exposed
+
+The instance's public IPv4 changed when it was stopped and started, which broke
+the `EC2_HOST` secret and caused a cancelled run before anyone noticed why. A
+dynamic address on a public demo is a design smell: an Elastic IP keeps the
+address across restarts and costs the same as the attached IPv4 already being
+billed.
 
 ---
 
