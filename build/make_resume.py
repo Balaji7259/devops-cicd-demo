@@ -205,6 +205,15 @@ def build():
     doc.addPageTemplates([PageTemplate(id="one", frames=[frame])])
     doc.build(story)
 
+    # The site serves its own copy. Publish automatically so the file a
+    # recruiter downloads cannot drift behind the resume you last edited --
+    # but only when building the canonical file, never a sweep build.
+    canonical = os.path.abspath("resume/Balaji-S-Resume.pdf")
+    if os.path.abspath(OUT) == canonical:
+        import shutil
+        shutil.copyfile(OUT, "site/resume.pdf")
+        print("published: site/resume.pdf")
+
 
 def report():
     import pymupdf
