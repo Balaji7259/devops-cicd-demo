@@ -10,7 +10,7 @@
 # Base image: official Nginx on Alpine Linux (~50 MB, far smaller than the
 # Debian-based tag). Pinning the minor version keeps builds reproducible --
 # `nginx:alpine` would silently jump major versions on you.
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 
 LABEL org.opencontainers.image.title="devops-cicd-demo"
 LABEL org.opencontainers.image.description="Static site served by Nginx, deployed via GitHub Actions to AWS ECR and EC2"
