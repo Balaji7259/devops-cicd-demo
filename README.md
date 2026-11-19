@@ -4,7 +4,11 @@ A push to `main` builds a Docker image, tests it, publishes it to Amazon ECR, an
 replaces the container running on EC2. No manual build, no manual deploy, no
 credentials on the server.
 
-**Live:** http://13.126.168.131 — health endpoint at `/healthz` returns `ok`.
+**Live:** http://13.201.21.216 — health endpoint at `/healthz` returns `ok`.
+
+> The instance uses a dynamic public IPv4, so this address changes whenever it is
+> stopped and started. That is also why the pipeline keeps the host in a secret
+> rather than in this file — and why an Elastic IP would be the next thing to add.
 
 The application is deliberately trivial (a static Nginx site). It exists to make
 the pipeline observable: when the page changes, the deployment worked; when it
