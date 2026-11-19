@@ -3,41 +3,160 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DevOps CI/CD Demo</title>
+  <title>Balaji — DevOps engineer building automated delivery on AWS</title>
+  <meta name="description" content="DevOps portfolio: a CI/CD pipeline that takes a git push to a running container on AWS in under a minute. Docker, GitHub Actions, Amazon ECR, EC2, Systems Manager." />
+  <meta property="og:title" content="Balaji — DevOps engineer" />
+  <meta property="og:description" content="A push to main builds, tests and deploys a Docker image to AWS in under a minute. No SSH, no manual step." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
+
   <header class="nav">
     <a class="brand" href="index.html">
-      <img src="assets/logo.svg" alt="" width="24" height="24" />
-      <span>devops-cicd-demo</span>
+      <img src="assets/logo.svg" alt="" width="26" height="26" />
+      <span>Balaji</span>
     </a>
-    <nav>
-      <a href="index.html" aria-current="page">Home</a>
-      <a href="about.html">How it works</a>
+    <nav aria-label="Sections">
+      <a href="index.html" aria-current="page">Work</a>
+      <a href="about.html">How it ships</a>
+      <a href="#contact">Contact</a>
     </nav>
   </header>
 
-  <main class="card">
-    <p class="eyebrow">Automated CI/CD Deployment Pipeline</p>
-    <h1>Deployed by GitHub Actions</h1>
-      <p class="deploy-stamp">Pipeline deploy test</p>
-    <p class="lede">
-      This page is served by an Nginx container. Every push to
-      <code>main</code> rebuilds the image, pushes it to Amazon ECR and
-      redeploys it on EC2 &mdash; with no manual steps.
-    </p>
+  <main id="main">
+    <!-- ---------------------------------------------------------------- hero -->
+    <section class="hero">
+      <p class="eyebrow">DevOps &middot; AWS &middot; Docker &middot; CI/CD</p>
+      <h1>Push to production,<br />automatically.</h1>
+      <p class="lede">
+        I&rsquo;m Balaji. This site is the demonstration: a commit to <code>main</code>
+        is built, tested and deployed to AWS in under a minute &mdash; no manual
+        step, no key on the server, and a rollback that happens on its own if the
+        new version is unhealthy.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="about.html">Read the case study &rarr;</a>
+        <a class="btn" href="https://github.com/Balaji7259/devops-cicd-demo">Source on GitHub</a>
+      </div>
+      <ul class="strip">
+        <li><strong>Deployed by</strong> GitHub Actions</li>
+        <li><strong>Runs on</strong> EC2 t3.micro</li>
+        <li><strong>Served by</strong> Nginx in Docker</li>
+      </ul>
+    </section>
 
-    <dl class="meta">
-      <div><dt>Application version</dt><dd>v1.0.0</dd></div>
-      <div><dt>Image</dt><dd>devops-cicd-demo</dd></div>
-      <div><dt>Served by</dt><dd>Nginx on Alpine</dd></div>
-      <div><dt>Environment</dt><dd>Local Docker</dd></div>
-    </dl>
+    <!-- ---------------------------------------------------------------- work -->
+    <section id="work">
+      <h2>Selected work</h2>
 
-    <p class="foot">
-      <a href="about.html">See how the pipeline works &rarr;</a>
-    </p>
+      <article class="project">
+        <div class="project-head">
+          <h3>Automated CI/CD deployment pipeline</h3>
+          <p class="project-role">Designed, built and operated solo</p>
+        </div>
+        <p>
+          A push to <code>main</code> builds a Docker image, smoke-tests it against
+          the routes the site actually serves, publishes it to Amazon ECR under an
+          immutable commit-SHA tag, then replaces the container on EC2 through
+          AWS Systems Manager. There is no SSH key, no inbound SSH rule, and no
+          credential stored on the server. If the new container never answers
+          <code>/healthz</code>, the previous image is restored automatically and
+          the pipeline still fails &mdash; a recovery is not a pass.
+        </p>
+
+        <ul class="metrics">
+          <li><span class="num">40&ndash;55 s</span><span class="cap">commit to live</span></li>
+          <li><span class="num">1</span><span class="cap">reachable port</span></li>
+          <li><span class="num">0</span><span class="cap">credentials on EC2</span></li>
+          <li><span class="num">Auto</span><span class="cap">rollback, verified</span></li>
+        </ul>
+
+        <ul class="tags">
+          <li>GitHub Actions</li>
+          <li>Docker</li>
+          <li>Amazon ECR</li>
+          <li>Amazon EC2</li>
+          <li>AWS Systems Manager</li>
+          <li>IAM least privilege</li>
+          <li>Nginx</li>
+          <li>Bash</li>
+        </ul>
+
+        <p class="project-links">
+          <a href="about.html">Read the case study &rarr;</a>
+          <a href="https://github.com/Balaji7259/devops-cicd-demo">Source on GitHub</a>
+        </p>
+      </article>
+
+      <!-- Add further projects by copying the <article class="project"> block above.
+           Keep the same structure: heading, one paragraph, metrics, tags, links. -->
+      <p class="note">
+        More write-ups are on the way. Each one follows the same format as above:
+        what it does, what it cost, what broke.
+      </p>
+    </section>
+
+    <!-- -------------------------------------------------------------- skills -->
+    <section id="skills">
+      <h2>What I work with</h2>
+      <div class="cols">
+        <div class="col">
+          <h3>Delivering and running</h3>
+          <ul class="plain">
+            <li>Docker &mdash; images, layers, multi-stage builds</li>
+            <li>GitHub Actions &mdash; jobs, dependencies, gated deploys</li>
+            <li>AWS &mdash; EC2, ECR, IAM, Systems Manager</li>
+            <li>Nginx &mdash; static serving, container config</li>
+            <li>Linux &mdash; Ubuntu, systemd, permissions, TCP checks</li>
+          </ul>
+        </div>
+        <div class="col">
+          <h3>Foundations</h3>
+          <ul class="plain">
+            <li>Git &mdash; branching, commit history as the release version</li>
+            <li>Bash &mdash; scripts that fail loudly and clean up after themselves</li>
+            <li>YAML &mdash; pipeline definitions read by machines, reviewed by humans</li>
+            <li>Least privilege &mdash; every identity scoped to one resource</li>
+            <li>Cost awareness &mdash; right-sized instances, lifecycle policies</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3 class="sub">What I would build next on this</h3>
+      <ul class="plain inline-list">
+        <li>OIDC federation instead of a stored access key</li>
+        <li>A second instance behind a load balancer, for zero-downtime swaps</li>
+        <li>Terraform for the AWS baseline, so the infrastructure is reviewable</li>
+        <li>Failure notifications that fire on rollback too</li>
+      </ul>
+    </section>
+
+    <!-- ------------------------------------------------------------- contact -->
+    <section id="contact">
+      <h2>Contact</h2>
+      <p>
+        Open to DevOps and cloud engineering roles. The fastest way to judge the
+        work is to read the case study, then look at the source.
+      </p>
+      <ul class="links">
+        <li><a href="https://github.com/Balaji7259">GitHub &mdash; Balaji7259</a></li>
+        <!-- Add your email and LinkedIn here, e.g.
+             <li><a href="mailto:you@example.com">you@example.com</a></li>
+             <li><a href="https://www.linkedin.com/in/your-handle">LinkedIn</a></li>
+        -->
+      </ul>
+    </section>
+
+    <footer class="foot">
+      <p>
+        This page runs in a container on AWS, built and deployed by the pipeline
+        described here. The health endpoint it is monitored on is
+        <a href="healthz">/healthz</a>.
+      </p>
+    </footer>
   </main>
 </body>
 </html>

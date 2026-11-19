@@ -3,45 +3,165 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>How the pipeline works &middot; DevOps CI/CD Demo</title>
+  <title>How this site ships — case study</title>
+  <meta name="description" content="Case study: how a git push becomes a running container on AWS in under a minute, with automatic rollback and no SSH." />
+  <meta property="og:title" content="How this site ships" />
+  <meta property="og:description" content="Gates, least privilege and automatic rollback, explained from the pipeline that serves this page." />
+  <meta property="og:type" content="article" />
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
+
   <header class="nav">
     <a class="brand" href="index.html">
-      <img src="assets/logo.svg" alt="" width="24" height="24" />
-      <span>devops-cicd-demo</span>
+      <img src="assets/logo.svg" alt="" width="26" height="26" />
+      <span>Balaji</span>
     </a>
-    <nav>
-      <a href="index.html">Home</a>
-      <a href="about.html" aria-current="page">How it works</a>
+    <nav aria-label="Sections">
+      <a href="index.html">Work</a>
+      <a href="about.html" aria-current="page">How it ships</a>
+      <a href="index.html#contact">Contact</a>
     </nav>
   </header>
 
-  <main class="card">
-    <p class="eyebrow">The deployment path</p>
-    <h1>What happens after a push</h1>
+  <main id="main" class="page">
+    <p class="eyebrow">Case study</p>
+    <h1>How this page gets here</h1>
     <p class="lede">
-      Nine things happen between <code>git push</code> and a visitor seeing
-      the new page. Each one runs in a different place, which is why the
-      &ldquo;where&rdquo; column matters when something breaks.
+      This page is not hosted on a platform. It is a Docker image, built from this
+      repository by a GitHub Actions runner, stored in Amazon ECR, pulled onto an
+      EC2 instance and served by Nginx. Everything below is the real pipeline, and
+      every claim here can be checked against the source or the AWS console.
     </p>
 
+    <h2>The path a commit takes</h2>
     <ol class="steps">
-      <li><strong>Commit is pushed</strong> &mdash; your Windows machine uploads the change to GitHub.</li>
-      <li><strong>Change is detected</strong> &mdash; GitHub matches the push against the workflow file and queues a run.</li>
-      <li><strong>Code is tested</strong> &mdash; a temporary Ubuntu runner checks the required files exist.</li>
-      <li><strong>Image is built</strong> &mdash; <code>docker build</code> executes the Dockerfile on that runner.</li>
-      <li><strong>Image is pushed</strong> &mdash; the layers are uploaded to Amazon ECR, tagged with the commit SHA.</li>
-      <li><strong>Server is contacted</strong> &mdash; the runner opens an SSH session to your EC2 instance.</li>
-      <li><strong>Image is pulled</strong> &mdash; EC2 downloads that exact tag from ECR.</li>
-      <li><strong>Container is replaced</strong> &mdash; the old container is removed and a new one starts from the new image.</li>
-      <li><strong>Nginx serves it</strong> &mdash; port 80 answers on the instance&rsquo;s public address.</li>
+      <li>
+        <strong>Push to <code>main</code>.</strong>
+        The commit SHA becomes the version number of the artefact. There is no
+        <code>latest</code> tag anywhere, so &ldquo;what is running?&rdquo; always has
+        an exact answer.
+      </li>
+      <li>
+        <strong>Static checks (~5 s).</strong>
+        Required files present, HTML tags balanced, health-endpoint contract intact.
+        This gate touches nothing in AWS, so a typo fails here instead of after a
+        two-minute build.
+      </li>
+      <li>
+        <strong>Build, then smoke test.</strong>
+        The image is built under a local name and started. Five routes are fetched
+        from it, and <code>/healthz</code> must return exactly <code>ok</code>. Only
+        an image that has already served traffic is allowed near the registry.
+      </li>
+      <li>
+        <strong>Push to ECR.</strong>
+        Retagged with the full commit SHA. Tag immutability is enabled, so a tag can
+        never be repointed at different bytes &mdash; which is what makes a rollback
+        to a tag mean something.
+      </li>
+      <li>
+        <strong>Deploy through Systems Manager.</strong>
+        The runner holds <code>ssm:SendCommand</code> against one instance. The
+        script runs as root on the instance, pulls the image, removes the old
+        container, starts the new one and polls <code>/healthz</code>.
+      </li>
+      <li>
+        <strong>Verify from the internet.</strong>
+        The endpoint is fetched from outside AWS, because a check that runs inside
+        the machine cannot detect a broken security group.
+      </li>
+      <li>
+        <strong>Guard.</strong>
+        A final job fails the run unless the deploy actually executed. GitHub will
+        otherwise report a skipped job as a green run.
+      </li>
     </ol>
 
-    <p class="foot">
-      <a href="index.html">&larr; Back to home</a>
+    <h2>When the new version is unhealthy</h2>
+    <p>
+      The deploy script polls <code>/healthz</code> ten times, two seconds apart.
+      If the container never answers, it restarts the previous image, polls again,
+      and then exits non-zero:
     </p>
+    <pre class="code"><code>ROLLING BACK to .../devops-cicd-demo:&lt;previous-sha&gt;
+still unhealthy - rolling back to previous image
+healthy after 2 attempt(s)</code></pre>
+    <p>
+      The site stays up. The pipeline still fails. That split is deliberate: a
+      rollback is a recovery, not a pass, and a run that reports green after
+      recovering teaches everyone to ignore red.
+    </p>
+    <p class="note">
+      This was proven by deploying a deliberately broken image to the running
+      instance &mdash; not in a staging copy of the pipeline.
+    </p>
+
+    <h2>Why there is no SSH</h2>
+    <p>
+      The obvious design is a GitHub runner SSH-ing into the instance. It cannot be
+      made safe here: GitHub publishes 5,622 IPv4 runner ranges and a security group
+      accepts 60 inbound rules, so whitelisting the runner is arithmetically
+      impossible. The only alternative would be port 22 open to the world. Systems
+      Manager removes the need for the port entirely, and adds an audit trail: every
+      command that runs on the instance is recorded with its output.
+    </p>
+
+    <h2>Security posture</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Control</th><th>How it is implemented</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>No credentials on the server</td><td>EC2 instance role, pull-only, one ECR repository</td></tr>
+          <tr><td>No inbound SSH</td><td>Port 22 closed; verified from outside: <code>22 open=false</code></td></tr>
+          <tr><td>Least privilege (CI)</td><td>Push and pull on one repository, plus <code>ssm:SendCommand</code> on one instance</td></tr>
+          <tr><td>No secrets in Git</td><td>GitHub encrypted secrets; keys and env files ignored</td></tr>
+          <tr><td>Image integrity</td><td>Tag immutability, scan on push, lifecycle policy for untagged images</td></tr>
+          <tr><td>One public surface</td><td>Port 80 only. The deploy path does not use it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>What broke, and what it taught</h2>
+    <p>
+      Four consecutive deploys failed with what looked like a payload problem. The
+      real cause was a <code>--comment</code> argument of 105 characters against a
+      documented limit of 100 &mdash; rejected before it ever reached the machine.
+    </p>
+    <p>
+      It stayed hidden for four runs because my diagnostic hid its own message: I
+      built a GitHub error annotation from the first line of the AWS error, the CLI
+      prefixes its output with a blank line, and GitHub silently discards an
+      annotation with an empty message. The instrument built to reveal the failure
+      was invisible.
+    </p>
+    <p>
+      The fix was four characters. The lesson was larger: when a diagnostic shows
+      nothing, suspect the diagnostic. The full write-up, including the false-green
+      run that skipped a deploy while reporting success, is in the repository under
+      <code>docs/</code>.
+    </p>
+
+    <h2>What this is not</h2>
+    <ul class="plain">
+      <li>Not zero-downtime: one instance, so the container swap leaves a brief gap.</li>
+      <li>Not autoscaling: a load balancer and a second instance would be the next step.</li>
+      <li>Not monitored: no alerting yet, and the omission is documented rather than hidden.</li>
+      <li>Not OIDC: the account plan blocks workload identity federation, so a scoped key is used and disclosed.</li>
+    </ul>
+
+    <p class="project-links">
+      <a href="https://github.com/Balaji7259/devops-cicd-demo">Source, workflow and phase-by-phase records on GitHub</a>
+      <a href="index.html">Back to the work</a>
+    </p>
+
+    <footer class="foot">
+      <p>Built and served by the pipeline described on this page.</p>
+    </footer>
   </main>
 </body>
 </html>

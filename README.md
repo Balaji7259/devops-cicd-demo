@@ -10,9 +10,12 @@ credentials on the server.
 > stays valid and the `EC2_HOST` secret does not go stale — a dynamic address
 > had already invalidated it twice before this was fixed.
 
-The application is deliberately trivial (a static Nginx site). It exists to make
-the pipeline observable: when the page changes, the deployment worked; when it
-doesn't, something in the chain broke and there is exactly one place to look.
+The application is a static portfolio site served by Nginx — two HTML documents,
+one stylesheet, one SVG, no build step and no external requests. It is
+deliberately content-only: when the page changes, the deployment worked; when it
+doesn't, something in the chain broke and there is exactly one place to look. The
+site documents the pipeline that ships it, so the artefact and the case study
+cannot drift apart.
 
 ---
 
