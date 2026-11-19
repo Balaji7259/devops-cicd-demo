@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs ON the EC2 instance, piped in over SSH by the deploy job.
+# Runs ON the EC2 instance, delivered by the deploy job through AWS Systems
+# Manager (RunCommand -> AWS-RunShellScript). There is no SSH connection and no
+# key on the instance; the agent picks the command up and runs it as root.
 #
 # Contract: replace the running container with a new image. If the new image
 # does not serve traffic, put the previous image back and exit non-zero.

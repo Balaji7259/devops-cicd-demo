@@ -1,5 +1,10 @@
 # Automated CI/CD Deployment Pipeline — AWS + Docker
 
+[![Build, Test and Deploy](https://github.com/Balaji7259/devops-cicd-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/Balaji7259/devops-cicd-demo/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
+[![Live demo](https://img.shields.io/badge/live-15.252.179.238-2ea44f.svg)](http://15.252.179.238)
+[![Inbound SSH](https://img.shields.io/badge/inbound%20SSH-none-lightgrey.svg)](#security-model)
+
 A push to `main` builds a Docker image, tests it, publishes it to Amazon ECR, and
 replaces the container running on EC2. No manual build, no manual deploy, no
 credentials on the server.
@@ -20,7 +25,25 @@ cannot drift apart.
 
 ---
 
+## What it looks like
+
+| The site it deploys | The run that deploys it |
+|---|---|
+| ![](shots/01-portfolio-home.png) | ![](shots/03-actions-green.png) |
+| A static portfolio served from the container, health-checked at `/healthz` | Four jobs, ~1 minute end to end, with durations from a real run |
+
+---
+
 ## Architecture
+
+![Architecture overview — runner, registry, instance, and what is absent](docs/diagrams/architecture-overview.png)
+
+The runner builds and publishes; the instance only pulls and runs. The deploy
+travels through AWS Systems Manager rather than into a port, which is why there
+is no SSH key anywhere and no inbound rule to maintain.
+
+The same chain as a graph — useful when reading the workflow, since the jobs map
+onto these steps one to one:
 
 ```mermaid
 flowchart LR
@@ -51,6 +74,20 @@ flowchart LR
 
 Two identities, both scoped to a single ECR repository. The server never holds a
 key; it assumes a role. The CI user can push and read images, and nothing else.
+
+| Identity model | How a deploy reaches the server |
+|---|---|
+| ![](docs/diagrams/iam-model.png) | ![](docs/diagrams/deploy-via-ssm.png) |
+| Neither identity can delete anything | No connection is made into the instance |
+
+| The four gates | Failure and rollback |
+|---|---|
+| ![](docs/diagrams/deploy-gates.png) | ![](docs/diagrams/rollback-flow.png) |
+| Each gate is cheaper than what it protects | A rollback restores service and still fails the run |
+
+Full walkthrough with every command and permission:
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. Diagram sources and how to
+regenerate them: [docs/diagrams/README.md](docs/diagrams/README.md).
 
 ---
 
@@ -118,14 +155,39 @@ instead. This is a documented compromise, not an oversight — see
 ## Repository layout
 
 ```
-.github/workflows/deploy.yml   the pipeline
-scripts/smoke-test.sh          shared gate: runs and probes an image
-scripts/deploy-remote.sh       runs on EC2: pull, swap, health check, roll back
-site/                          static site served by Nginx
-Dockerfile                     nginx:1.27-alpine + site files
-docs/                          phase-by-phase engineering record
-docs/PORTFOLIO-PACK.md         CV bullets, interview Q&A, demo script
+.github/workflows/deploy.yml     the pipeline: four jobs, all gates
+.github/workflows/ssm-check.yml  manual read-only probe of SSM connectivity
+.github/ISSUE_TEMPLATE/          structured bug and proposal forms
+scripts/smoke-test.sh            shared gate: runs and probes an image
+scripts/deploy-remote.sh         runs on EC2: pull, swap, health check, roll back
+site/                            static site served by Nginx (content only)
+Dockerfile                       nginx:1.27-alpine + site files + /healthz
+docs/ARCHITECTURE.md             how it works, with diagrams
+docs/diagrams/                   published architecture diagrams
+docs/PHASE-*.md                  phase-by-phase engineering record
+docs/PORTFOLIO-PACK.md           CV bullets, interview Q&A, demo script
+build/                           PDF and diagram generators
 ```
+
+---
+
+## Documentation
+
+| Document | What is in it |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, the four gates, the identity model, rollback, invariants, trade-offs |
+| [DevOps-CICD-Project-Handbook.pdf](DevOps-CICD-Project-Handbook.pdf) | 51-page handbook: every command, every permission, every failure, with the reasoning |
+| [docs/PHASE-1-DAY-1.md](docs/PHASE-1-DAY-1.md) | Local application and first container |
+| [docs/PHASE-2-AWS-BASELINE.md](docs/PHASE-2-AWS-BASELINE.md) | Manual deployment on AWS, by hand, on purpose |
+| [docs/PHASE-3-GITHUB-ACTIONS.md](docs/PHASE-3-GITHUB-ACTIONS.md) | The pipeline, including the first failures |
+| [docs/PHASE-4-HARDENING.md](docs/PHASE-4-HARDENING.md) | Rollback, Systems Manager migration, lifecycle policy |
+| [docs/PORTFOLIO-PACK.md](docs/PORTFOLIO-PACK.md) | How to talk about this project in an interview |
+| [SECURITY.md](SECURITY.md) | Posture, what is in scope, what is a documented decision |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | One rule: behaviour and documentation change together |
+
+The older `docs/CI-CD-Pipeline-Build-Log.pdf` is kept as a historical record. Its
+diagrams show the SSH-based design that Phase 4 replaced; the handbook is the
+current description.
 
 ---
 
@@ -191,3 +253,10 @@ convenience.
 
 ECR storage for a handful of images is negligible. Funded by AWS Free plan
 credits; the account expires **23 April 2027** unless upgraded.
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). The application content in `site/` is a personal
+portfolio; the pipeline, scripts and documentation are free to reuse.

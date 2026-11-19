@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the pipeline or the site behaves differently from the documentation.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: the failure log in the README records four incidents that
+        looked like bugs and were permissions. Check whether this is one of them.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observable behaviour, not the interpretation.
+      placeholder: The deploy job failed at "Verify public endpoint" with a 000 response.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Paste the exact error text, the run URL, or the command output. A run
+        number is useful because the log is immutable.
+      render: shell
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it fail
+      options:
+        - Static checks job
+        - Build / smoke test job
+        - Push to ECR
+        - Deploy job (Systems Manager)
+        - Public verification
+        - The site itself
+        - Local docker build/run
+        - Documentation
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have read docs/ARCHITECTURE.md
+        - label: I am not reporting a documented known gap (HTTPS, OIDC, notifications)

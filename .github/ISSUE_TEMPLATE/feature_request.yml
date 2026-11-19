@@ -1,0 +1,40 @@
+name: Improvement proposal
+description: Suggest a change to the pipeline, the site, or the documentation.
+title: "[proposal] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the situation, not the solution. "The deploy has a gap of a few seconds" is a problem; "add a load balancer" is a solution that may not be the best one.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost and blast radius
+      description: |
+        This project runs on an AWS Free plan with roughly \$12.50/month of usage.
+        Anything that adds a billable resource, or widens an IAM permission, needs
+        that stated up front.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Pipeline / workflow
+        - Deploy script
+        - IAM and security
+        - The site
+        - Documentation and diagrams
+    validations:
+      required: true
