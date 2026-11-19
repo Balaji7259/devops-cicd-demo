@@ -120,6 +120,7 @@ scripts/deploy-remote.sh       runs on EC2: pull, swap, health check, roll back
 site/                          static site served by Nginx
 Dockerfile                     nginx:1.27-alpine + site files
 docs/                          phase-by-phase engineering record
+docs/PORTFOLIO-PACK.md         CV bullets, interview Q&A, demo script
 ```
 
 ---
@@ -159,11 +160,15 @@ convenience.
 
 ## Known gaps
 
-- **The old port 22 rule must be deleted by hand.** The deploy path no longer
-  uses SSH — GitHub publishes 5,622 IPv4 runner ranges against a 60-rule limit,
-  so whitelisting was never possible, and Systems Manager removed the need
-  entirely. Deleting the rule and the `EC2_SSH_KEY` secret are the last two
-  console steps of Phase 4.2.
+- **No failure notification.** A red run is only visible to whoever opens the
+  Actions tab. Deliberate for a single-operator project, and the first thing to
+  add when a second person depends on it — it must fire on rollback too, because
+  a recovered run still means a defective image was published.
+- **SSH was removed, not just restricted.** The old port 22 rule is deleted and
+  the `EC2_SSH_KEY` secret is gone; the deploy path no longer uses SSH at all.
+  GitHub publishes 5,622 IPv4 runner ranges against a 60-rule limit, so
+  whitelisting was never possible, and Systems Manager removed the need
+  entirely. Verified from outside: `22 open=false`, `80 open=true`.
 - **Access key instead of OIDC** — blocked by account plan, see above.
 - **Single instance, brief downtime** during container replacement. Not
   zero-downtime; a second instance behind a load balancer would be.
