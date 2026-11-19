@@ -101,8 +101,8 @@ A = story.append
 A(Paragraph("BALAJI S", name))
 A(Paragraph("Infrastructure &amp; Cloud Engineering &nbsp;|&nbsp; AWS &nbsp;|&nbsp; CI/CD &nbsp;|&nbsp; Systems Administration", tag))
 A(Spacer(1, 2.5))
-A(Paragraph("Bengaluru, India &nbsp;&middot;&nbsp; +91 7259742213 &nbsp;&middot;&nbsp; balaji.techy22@gmail.com &nbsp;&middot;&nbsp; s.balaji@cmr.edu.in", contact))
-A(Paragraph("linkedin.com/in/balaji-s-4688692ba &nbsp;&middot;&nbsp; github.com/Balaji7259 &nbsp;&middot;&nbsp; Live demo: 15.252.179.238", contact))
+A(Paragraph("Bengaluru, India &nbsp;&middot;&nbsp; +91 7259742213 &nbsp;&middot;&nbsp; balaji.techy22@gmail.com", contact))
+A(Paragraph("linkedin.com/in/balaji-s-4688692ba &nbsp;&middot;&nbsp; github.com/Balaji7259", contact))
 
 # ----------------------------------------------------------------- summary
 for f in section("Professional Summary"):
