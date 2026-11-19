@@ -1,8 +1,8 @@
 # Phase 4 — Hardening
 
 **Started:** 18 November 2026
-**State:** in progress — items 1 and 2 shipped and verified; two items remain
-(ECR lifecycle, failure notification), plus two console steps to finish 4.2.
+**State:** complete. 4.1, 4.2 and 4.3 shipped and verified; notifications are a
+recorded decision, not an oversight. See 4.5 for the exit record.
 
 Phase 3 made deployment automatic. Phase 4 makes it survivable: what happens when
 the thing being deployed is wrong, when SSH itself is the risk, and when the
@@ -220,16 +220,107 @@ billed.
 
 ---
 
-## 4.3 Remaining work
+## 4.3 ECR lifecycle policy
+
+**Applied** — verified in the console, two rules active:
+
+| Priority | Tag status | Criteria | Action |
+|---|---|---|---|
+| 1 | Untagged | 14 days since created | Expire |
+| 2 | Tagged (`*`) | more than 50 images | Expire |
+
+The policy file lives at `.aws/ecr-lifecycle-policy.json`, so it is reviewable
+and reproducible rather than a console one-off.
+
+**Why these two rules.** Every build leaves an untagged manifest behind when a
+tag is superseded - invisible in the UI, still billed. The second rule keeps
+rollback history bounded without making it age-based: a rule that expired
+*tagged* images by age would eventually delete rollback targets, and the failure
+would stay silent until the day someone needed one.
+
+Also deleted the `broken-test` image left over from the rollback test:
+
+```
+Successfully deleted image: sha256:e6964a01...f14529
+```
+
+Two operational details worth knowing:
+
+- ECR applies lifecycle actions **within 24 hours**, not immediately. "No events
+  found" right after saving is expected, not a broken policy.
+- Tag immutability does not block deletion. It prevents a tag being *repointed*
+  at different bytes; removal is a separate permission, which is why this needed
+  a human - the CI user deliberately cannot delete images.
+
+## 4.4 Remaining work
 
 | Item | Why it matters | Approach |
 |---|---|---|
-| ECR lifecycle policy | Untagged layers accumulate with every build | Expire untagged images after 14 days; keep tagged ones; also delete the `broken-test` tag by hand |
-| Failure notification | A red run nobody sees did not happen | Webhook on `failure` and on `rollback occurred` |
+| Failure notification | A red run nobody sees did not happen | Webhook on `failure` **and** on rollback; a run that recovered still needs to be seen |
+| Elastic IP (optional) | The dynamic public IPv4 invalidated a stored secret once already | Allocate and associate; same cost as the attached IPv4 |
 
 ### Ordering rationale
 
-SSH first. It is the only open-to-the-world service left, and it removes two
-long-lived secrets (the private key and the ability to reach the box at all).
-Notifications last, because a pipeline that recovers by itself is less urgent to
-be told about than one that leaves the site down.
+The security work came first because SSH was the only service open to the
+world. Notifications come last because a pipeline that now recovers by itself
+and fails loudly is less urgent to be told about than one that leaves the site
+down.
+
+---
+
+## 4.5 Phase 4 exit
+
+**Closed:** 19 November 2026
+
+### What shipped, and how each claim was checked
+
+| Change | Verified by |
+|---|---|
+| Automatic rollback | Deployed a deliberately unhealthy image on the real instance; site stayed up, previous version restored, run exited 1 |
+| SSM deploy replaces SSH | Runs #18, #20, #21 green; container image on the instance matched `git HEAD` |
+| Port 22 closed | External TCP probe to the public address: `22 open=false`, `80 open=true` |
+| No credentials on the runner | The deploy job configures AWS credentials only for `ssm:SendCommand`; no key is written to disk |
+| Command audit | Every deploy appears in AWS command history with stdout and stderr |
+| ECR lifecycle | Two rules visible in the console after saving |
+
+Every row was checked against the running system, not inferred from a green
+badge. Where a check was impossible - the CI user cannot read ECR policy - it is
+stated as unverified in the section above rather than assumed.
+
+### Deliberately not done
+
+| Omission | Reason |
+|---|---|
+| Failure notifications | One consumer, and the pipeline now recovers by itself and fails loudly. Worth adding the moment a second person depends on it - and when it is added, it must fire on rollback too, because a recovered run still means a defect shipped |
+| Elastic IP | Costs the same as the attached IPv4 and would remove the "address changed, secret went stale" failure. Deferred as polish, not as risk |
+| Unit tests | The application is static; the artefact is tested instead. The workflow has the slot |
+| Zero-downtime deploy | Requires a load balancer and a second instance - more cost than this project justifies |
+
+### The lesson this phase produced
+
+Not the Systems Manager migration itself. The four red runs that preceded it were
+all caused by a cosmetic `--comment` argument exceeding a 100-character limit,
+and they stayed invisible because the diagnostic built to expose the error
+produced an annotation with an empty message, which GitHub silently discards.
+
+Two mistakes stacked, each hiding the other. **When a diagnostic shows nothing,
+suspect the diagnostic** - and prefer state that can be queried over state that
+must be reported by a human.
+
+### Final state of the system
+
+```
+push to main
+   -> static checks (~5s)
+   -> build + smoke test (~15s)
+   -> push to ECR, tagged by commit SHA
+   -> ssm:SendCommand to one instance
+   -> pull, swap, health check
+        healthy  -> exit 0, run green
+        unhealthy -> restore previous image, exit 1, run red
+   -> verify from the public internet
+   -> guard: fail the run if the deploy did not happen
+```
+
+One reachable port. No key on disk. Every command recorded. A bad deploy costs
+disruption, not an outage.
