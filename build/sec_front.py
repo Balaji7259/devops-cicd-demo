@@ -37,7 +37,7 @@ def cover():
 
     facts = grid_table(
         [["Repository", "github.com/Balaji7259/devops-cicd-demo"],
-         ["Live site", "http://13.126.168.131  (health endpoint: /healthz)"],
+         ["Live site", "http://15.252.179.238  (Elastic IP; health endpoint: /healthz)"],
          ["Cloud", "AWS ap-south-1 (Mumbai) - ECR + EC2 t3.micro"],
          ["Pipeline", "4 gated jobs, 40-55 seconds end to end"],
          ["Rollback", "workflow dispatch with an image tag - same gates"],

@@ -182,8 +182,10 @@ at 'comment' failed to satisfy constraint: Member must have length less than or 
                "second or two where nothing answers. A load balancer and two instances would fix it."),
         bullet("<b>No failure notification.</b> A red run is only seen by whoever looks at the Actions "
                "tab. Worth adding when more than one person depends on this."),
-        bullet("<b>A dynamic public address.</b> The instance's IPv4 changes when it is stopped and "
-               "started, which silently invalidates one stored secret. An Elastic IP would pin it."),
+        bullet("<b>Was a dynamic public address - since fixed.</b> The instance's IPv4 changed on "
+               "every stop/start and silently invalidated one stored secret. An Elastic IP is now "
+               "attached (<i>15.252.179.238</i>), so the address is static and the secret cannot go "
+               "stale behind a restart."),
         Spacer(1, 4),
         callout("None of these are accidents. Each is a documented trade-off with a known fix, which is "
                 "a different thing from a gap nobody noticed.", "good"),

@@ -213,10 +213,12 @@ port 80: docker-proxy
 ### One thing this exposed
 
 The instance's public IPv4 changed when it was stopped and started, which broke
-the `EC2_HOST` secret and caused a cancelled run before anyone noticed why. A
-dynamic address on a public demo is a design smell: an Elastic IP keeps the
-address across restarts and costs the same as the attached IPv4 already being
-billed.
+the `EC2_HOST` secret and caused a cancelled run before anyone noticed why.
+
+**Fixed afterwards:** an Elastic IP was allocated and associated, so the address
+is now static at `15.252.179.238` and survives stop/start. The realistic cost is
+unchanged - an attached public IPv4 is billed either way - and one whole class of
+silent failure is gone: the stored host no longer goes stale behind a restart.
 
 ---
 
@@ -292,7 +294,7 @@ stated as unverified in the section above rather than assumed.
 | Omission | Reason |
 |---|---|
 | Failure notifications | One consumer, and the pipeline now recovers by itself and fails loudly. Worth adding the moment a second person depends on it - and when it is added, it must fire on rollback too, because a recovered run still means a defect shipped |
-| Elastic IP | Costs the same as the attached IPv4 and would remove the "address changed, secret went stale" failure. Deferred as polish, not as risk |
+| Elastic IP | **Done** - allocated and associated; the address is now `15.252.179.238` and stable across restarts |
 | Unit tests | The application is static; the artefact is tested instead. The workflow has the slot |
 | Zero-downtime deploy | Requires a load balancer and a second instance - more cost than this project justifies |
 
