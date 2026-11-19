@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify required files exist
         run: |
@@ -127,7 +127,7 @@ jobs:
       image_uri: ${{ steps.resolve.outputs.image_uri }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Built under a local name first. Nothing touches AWS until the image has
       # proven it can serve traffic, so a broken build never reaches the registry.
@@ -241,7 +241,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Check out deploy script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The remote logic lives in scripts/deploy-remote.sh so it can be linted,
       # reviewed and tested against the real server before the pipeline relies
