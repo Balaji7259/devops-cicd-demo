@@ -1,7 +1,8 @@
 # Phase 4 — Hardening
 
 **Started:** 18 November 2026
-**State:** in progress — item 1 shipped and verified, three items remain.
+**State:** in progress — items 1 and 2 shipped and verified; two items remain
+(ECR lifecycle, failure notification), plus two console steps to finish 4.2.
 
 Phase 3 made deployment automatic. Phase 4 makes it survivable: what happens when
 the thing being deployed is wrong, when SSH itself is the risk, and when the
@@ -111,12 +112,97 @@ working as intended — the identity that deploys cannot destroy evidence.
 
 ---
 
-## 4.2 Remaining work
+## 4.2 Deploy through Systems Manager instead of SSH
+
+**Commits:** `f584873` (migration) → `cd65b74` → `cecccea` (fixes) · **Run:** #18, all four jobs green
+
+### The gap it closes
+
+Port 22 was open to `0.0.0.0/0`. GitHub publishes 5,622 IPv4 runner ranges and
+a security group allows 60 rules, so whitelisting was never an option - the
+deploy path itself had to stop needing SSH.
+
+### What changed
+
+| Before | After |
+|---|---|
+| SSH key written to the runner's disk | No key exists; deleted from GitHub secrets |
+| `ssh -o StrictHostKeyChecking=yes` | `aws ssm send-command` |
+| Ran as `ubuntu` | Runs as **root**, via the agent |
+| Port 22 open to the world | No inbound port needed |
+| Connection is the only evidence | Every command and its output is stored in AWS command history |
+
+The deploy script is unchanged. Only the transport moved, which is why the
+rollback logic needed no rework: `scripts/deploy-remote.sh` still decides what
+happens, and `ssm:SendCommand` is merely how it gets there.
+
+The CI user's permissions were extended with a **separate policy**,
+`ssm-deploy-devops-cicd-demo`, pinned to one instance ARN plus the
+`AWS-RunShellScript` document. Push rights and shell rights stay in different
+documents so either can be revoked alone.
+
+### The four failed attempts, and what they actually were
+
+This took four red runs. The cause was not what any of them appeared to say.
+
+| Run | Change tried | Real cause |
+|---|---|---|
+| #14 | inline JSON parameter | `--comment` was 105 characters; SSM allows 100 |
+| #15 | `file://` parameter file | same comment rejection |
+| #16 | chunked commands | same comment rejection |
+| #17 | root-owned staging dir | same comment rejection |
+
+The error was always:
+
+```
+ValidationException: Value 'deploy 576329196399.dkr.ecr...' at 'comment'
+failed to satisfy constraint: Member must have length less than or equal to 100
+```
+
+Four characters. `--comment` is a cosmetic label, and it rejected every request
+before it reached the machine.
+
+**Why it stayed invisible for four runs:** the first attempt used `set -e`, which
+killed the step the moment the CLI failed and discarded its message. The fix was
+to capture stderr with `2>&1` and echo it. That should have ended it. It did not,
+because the diagnostic annotation was built from the first line of the AWS error
+- and the AWS CLI prefixes its error with a blank line. GitHub silently discards
+an annotation with an empty message, so the instrument built to reveal the error
+was itself invisible.
+
+Two mistakes stacked, each hiding the other. The lesson is not "read the docs",
+it is: **when a diagnostic shows nothing, suspect the diagnostic.**
+
+A secondary finding, unrelated to the pipeline: `fs.protected_regular=2` on
+Ubuntu makes even root fail to open a file it does not own inside `/tmp`. A
+leftover file from earlier testing caused exactly that, which is why the script
+is now staged in `/var/lib/deploy-ci` (mode 700) rather than a predictable path
+in a shared directory.
+
+### Verification
+
+Run #18 was the first genuine end-to-end deploy through SSM: build, push, then
+`SendCommand` executing the script as root, all four jobs green.
+
+The pipeline was proven twice: once by executing the extracted step locally
+(`EXIT=0`, container swapped, `final status: Success, exit code: 0`), and once by
+the run itself.
+
+### Closing steps (console, manual)
+
+- Delete the port 22 inbound rule from `devops-cicd-sg`
+- Delete the `EC2_SSH_KEY` repository secret
+
+Until both are done, SSH still works alongside SSM. The pipeline no longer needs
+it.
+
+---
+
+## 4.3 Remaining work
 
 | Item | Why it matters | Approach |
 |---|---|---|
-| Replace SSH with Systems Manager | Port 22 is open to `0.0.0.0/0` because GitHub's 5,622 runner ranges cannot be whitelisted into a 60-rule security group | `ssm:SendCommand` using the instance role; attach `AmazonSSMManagedInstanceCore`; remove the SSH rule and the key from GitHub entirely |
-| ECR lifecycle policy | Untagged layers accumulate with every build | Expire untagged images after 14 days; keep tagged ones |
+| ECR lifecycle policy | Untagged layers accumulate with every build | Expire untagged images after 14 days; keep tagged ones; also delete the `broken-test` tag by hand |
 | Failure notification | A red run nobody sees did not happen | Webhook on `failure` and on `rollback occurred` |
 
 ### Ordering rationale

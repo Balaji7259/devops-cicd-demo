@@ -23,14 +23,14 @@ flowchart LR
         t1[1. Static checks]
         t2[2. Build + smoke test]
         t3[3. Push to ECR]
-        t4[4. Deploy over SSH]
+        t4[4. Deploy via SSM]
         t5[5. Verify from internet]
         t1 --> t2 --> t3 --> t4 --> t5
     end
 
     gh --> t1
     t3 -->|docker push| ecr[(Amazon ECR<br/>immutable tags)]
-    t4 -->|ssh, key-only| ec2[EC2 t3.micro<br/>Ubuntu 24.04]
+    t4 -->|ssm send-command<br/>no inbound port| ec2[EC2 t3.micro<br/>Ubuntu 24.04]
     ec2 -->|pull via instance role| ecr
     t5 -->|HTTP 200 / ok| live[Public site]
 
@@ -55,8 +55,10 @@ key; it assumes a role. The CI user can push and read images, and nothing else.
    every route the site depends on is fetched. A broken image never reaches ECR.
 4. **Push** — retagged with the **full commit SHA** and pushed to ECR. Tags are
    immutable, so an image can never be silently overwritten.
-5. **Deploy** — SSH to EC2, authenticate to ECR using the *instance role*, pull,
-   remove the old container, start the new one.
+5. **Deploy** — the deploy script is sent through **AWS Systems Manager**
+   (`ssm:SendCommand`) and runs as root on the instance. There is no SSH key and
+   no inbound port involved; the instance's own role authenticates it. The
+   script pulls from ECR, replaces the container, and checks `/healthz`.
 6. **Verify** — health endpoint checked locally, then again **from the public
    internet**, because a local check cannot detect a broken security group.
 
@@ -93,9 +95,10 @@ ever deployed can be redeployed.
 | Least privilege (server) | Pull actions only, one repository. `DescribeRepositories` is denied — verified |
 | Least privilege (CI) | Push + pull, one repository. No delete, no EC2, no IAM |
 | No secrets in Git | GitHub encrypted secrets only; `.gitignore` covers keys and env files |
-| SSH | Key-only, no passwords. Currently open to `0.0.0.0/0` — see *Known gaps* |
+| Deploy channel | `ssm:SendCommand`, scoped to **one instance ARN** and the `AWS-RunShellScript` document. No SSH key exists anywhere |
+| Command audit | Every command that runs on the server is recorded in AWS command history with its output |
 | Image integrity | ECR tag immutability + scan-on-push |
-| Public surface | Only 22 (SSH) and 80 (HTTP) reachable |
+| Public surface | Port 80 only. No inbound SSH rule; port 22 is not required |
 
 **No OIDC.** The AWS Free plan guardrails block `iam:*Provider*`, so GitHub
 cannot federate directly into AWS. The pipeline uses a scoped IAM access key
@@ -152,9 +155,11 @@ convenience.
 
 ## Known gaps
 
-- **SSH is open to `0.0.0.0/0`.** GitHub publishes 5,622 IPv4 runner ranges;
-  a security group allows 60 rules. Whitelisting is not possible. The real fix
-  is AWS Systems Manager `Send-Command`, removing port 22 from the deploy path.
+- **The old port 22 rule must be deleted by hand.** The deploy path no longer
+  uses SSH — GitHub publishes 5,622 IPv4 runner ranges against a 60-rule limit,
+  so whitelisting was never possible, and Systems Manager removed the need
+  entirely. Deleting the rule and the `EC2_SSH_KEY` secret are the last two
+  console steps of Phase 4.2.
 - **Access key instead of OIDC** — blocked by account plan, see above.
 - **Single instance, brief downtime** during container replacement. Not
   zero-downtime; a second instance behind a load balancer would be.
