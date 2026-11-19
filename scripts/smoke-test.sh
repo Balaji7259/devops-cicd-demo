@@ -53,6 +53,7 @@ check /
 check /about.html
 check /style.css
 check /assets/logo.svg
+check /resume.pdf
 
 body=$(curl -fsS "http://localhost:${PORT}/healthz")
 if [ "${body}" != "ok" ]; then

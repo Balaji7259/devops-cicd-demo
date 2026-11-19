@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           for f in Dockerfile site/index.html site/about.html site/style.css \
-                   site/assets/logo.svg scripts/smoke-test.sh \
+                   site/assets/logo.svg site/resume.pdf scripts/smoke-test.sh \
                    scripts/deploy-remote.sh; do
             if [ ! -f "$f" ]; then
               echo "::error::Required file missing: $f"
@@ -54,6 +54,13 @@ jobs:
             fi
             echo "present: $f"
           done
+
+          # Existence is not validity. A truncated download or a file renamed to
+          # .pdf would pass the loop above and only fail in a recruiter's browser.
+          # The magic number is the cheapest possible proof that it opens.
+          head -c 5 site/resume.pdf | grep -q '%PDF-' || {
+            echo "::error::site/resume.pdf does not start with %PDF-"; exit 1; }
+          echo "resume.pdf is a valid PDF"
 
       - name: Validate HTML structure
         run: |
